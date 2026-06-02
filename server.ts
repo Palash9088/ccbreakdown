@@ -178,7 +178,7 @@ Strict Guidelines:
     const prompt = `Here is the raw extracted text content from the credit card statement PDF:\n\n${extractedContentText}\n\nPlease parse the statement data and output the structured JSON response mapping strictly to our layout schema.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.0-flash",
       contents: prompt,
       config: {
         systemInstruction,
