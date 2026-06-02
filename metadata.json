@@ -1,0 +1,6 @@
+{
+  "name": "Financial Statement Parser",
+  "description": "Convert PDF credit card statements into structured, categorized expense reports with summary statistics and insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
