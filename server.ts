@@ -9,9 +9,8 @@ import { createRequire } from "module";
 // @ts-ignore
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 
-// Set worker source for pdfjs-dist with absolute path resolution for reliable Node environment execution
-const requireCurrent = typeof require !== "undefined" ? require : createRequire(import.meta.url);
-pdfjs.GlobalWorkerOptions.workerSrc = requireCurrent.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+// Set worker source for pdfjs-dist using unpkg CDN to ensure serverless compatibility on Vercel
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.mjs`;
 
 dotenv.config();
 
