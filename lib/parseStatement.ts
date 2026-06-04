@@ -3,6 +3,13 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { GoogleGenAI, Type } from "@google/genai";
 import { ensurePdfNodeGlobals } from "./ensurePdfNodeGlobals.js";
+import {
+  apiErrorCodeForGemini,
+  getGeminiModelCandidates,
+  httpStatusForGeminiError,
+  parseGeminiError,
+  shouldTryNextGeminiModel,
+} from "./gemini.js";
 
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
@@ -241,15 +248,11 @@ Strict Guidelines:
 
   const prompt = `Here is the raw extracted text content from the credit card statement PDF:\n\n${extractedText}\n\nPlease parse the statement data and output the structured JSON response mapping strictly to our layout schema.`;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
-      config: {
-        systemInstruction,
-        temperature: 0.1,
-        responseMimeType: "application/json",
-        responseSchema: {
+  const geminiConfig = {
+    systemInstruction,
+    temperature: 0.1,
+    responseMimeType: "application/json" as const,
+    responseSchema: {
           type: Type.OBJECT,
           properties: {
             rawReport: {
@@ -358,27 +361,53 @@ Strict Guidelines:
           },
           required: ["rawReport", "transactions", "summary"],
         },
-      },
-    });
+  };
 
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error("No response received from Gemini.");
+  const models = getGeminiModelCandidates();
+  let lastGeminiError: unknown;
+
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: geminiConfig,
+      });
+
+      const responseText = response.text;
+      if (!responseText) {
+        throw new Error("No response received from Gemini.");
+      }
+
+      const parsedJSON = JSON.parse(responseText);
+      return { ok: true, data: parsedJSON };
+    } catch (err: unknown) {
+      lastGeminiError = err;
+      console.warn(`Gemini model "${model}" failed:`, errMessage(err).slice(0, 300));
+      if (!shouldTryNextGeminiModel(err)) {
+        break;
+      }
     }
-
-    const parsedJSON = JSON.parse(responseText);
-    return { ok: true, data: parsedJSON };
-  } catch (err: unknown) {
-    console.error("Statement processing error:", err);
-    return {
-      ok: false,
-      status: 500,
-      body: {
-        error: "INTERNAL_SERVICE_ERROR",
-        message:
-          "Unable to parse statement. Please ensure it is a valid credit card statement PDF. Details: " +
-          errMessage(err),
-      },
-    };
   }
+
+  const geminiErr = parseGeminiError(lastGeminiError);
+  const triedModels = models.join(", ");
+  console.error("Statement processing error after models:", triedModels, geminiErr.rawMessage);
+
+  let message = geminiErr.userMessage;
+  if (geminiErr.kind === "quota" || geminiErr.kind === "rate_limit") {
+    message += ` Tried models: ${triedModels}.`;
+    if (geminiErr.retryAfterSeconds) {
+      message += ` Retry after about ${geminiErr.retryAfterSeconds} seconds.`;
+    }
+  }
+
+  return {
+    ok: false,
+    status: httpStatusForGeminiError(geminiErr),
+    body: {
+      error: apiErrorCodeForGemini(geminiErr),
+      message,
+    },
+  };
 }

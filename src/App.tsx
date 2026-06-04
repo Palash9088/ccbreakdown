@@ -213,8 +213,33 @@ export default function App() {
           });
           return;
         }
+
+        const apiError = typeof data.error === "string" ? data.error : "";
+        const apiMessage =
+          typeof data.message === "string" ? data.message : undefined;
+
+        if (apiError === "QUOTA_EXCEEDED" || apiError === "RATE_LIMIT") {
+          setError({
+            message: "Gemini API limit reached",
+            detail:
+              apiMessage ||
+              "Your API key has no remaining quota for the models tried. Use gemini-flash-latest or enable billing in Google AI Studio.",
+          });
+          return;
+        }
+
+        if (apiError === "INVALID_API_KEY") {
+          setError({
+            message: "Invalid Gemini API key",
+            detail:
+              apiMessage ||
+              "Check the key in the app header or set GEMINI_API_KEY on Vercel.",
+          });
+          return;
+        }
+
         throw new Error(
-          (typeof data.message === "string" && data.message) ||
+          apiMessage ||
             "An error occurred while parsing the credit card statement."
         );
       }
