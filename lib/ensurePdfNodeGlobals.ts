@@ -54,10 +54,13 @@ export function ensurePdfNodeGlobals(): Promise<void> {
   if (!_ready) {
     _ready = (async () => {
       installStubs();
-      try {
-        await import("@napi-rs/canvas");
-      } catch {
-        // Stubs are enough for text extraction when native canvas is unavailable.
+      // Skip heavy native canvas on Vercel to reduce cold-start time.
+      if (!process.env.VERCEL) {
+        try {
+          await import("@napi-rs/canvas");
+        } catch {
+          // Stubs are enough for text extraction when native canvas is unavailable.
+        }
       }
     })();
   }

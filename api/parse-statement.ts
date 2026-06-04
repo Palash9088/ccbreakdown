@@ -2,7 +2,11 @@ import "../lib/ensurePdfNodeGlobals.js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { parseStatement } from "../lib/parseStatement.js";
 
+/** Hobby caps at 10s; Pro allows up to 60s (also set in vercel.json). */
+export const maxDuration = 60;
+
 export const config = {
+  maxDuration: 60,
   api: {
     bodyParser: {
       sizeLimit: "25mb",

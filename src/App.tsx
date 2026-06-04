@@ -238,6 +238,20 @@ export default function App() {
           return;
         }
 
+        if (
+          response.status === 504 ||
+          apiError === "TIMEOUT" ||
+          (apiMessage && /timeout|timed out/i.test(apiMessage))
+        ) {
+          setError({
+            message: "Processing timed out",
+            detail:
+              apiMessage ||
+              "The server took too long (PDF + AI). Use a smaller statement, set GEMINI_MODEL=gemini-flash-latest, or upgrade Vercel to Pro for 60s functions.",
+          });
+          return;
+        }
+
         throw new Error(
           apiMessage ||
             "An error occurred while parsing the credit card statement."

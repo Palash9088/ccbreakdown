@@ -141,6 +141,19 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+const DEFAULT_MAX_INPUT_CHARS = 60_000;
+
+function truncateStatementText(text: string): string {
+  const maxChars = Number(process.env.GEMINI_MAX_INPUT_CHARS) || DEFAULT_MAX_INPUT_CHARS;
+  if (text.length <= maxChars) return text;
+
+  const marker = "\n\n[... middle of statement omitted to stay within processing limits ...]\n\n";
+  const budget = maxChars - marker.length;
+  const headSize = Math.floor(budget * 0.7);
+  const tailSize = budget - headSize;
+  return text.slice(0, headSize) + marker + text.slice(-tailSize);
+}
+
 export async function parseStatement(
   input: ParseStatementInput
 ): Promise<ParseStatementResult> {
@@ -246,7 +259,8 @@ Strict Guidelines:
 - If the statement spans multiple pages, combine them into a single chronological table.
 - Maintain the currency formatting (Rs. or ₹) as seen in the document.`;
 
-  const prompt = `Here is the raw extracted text content from the credit card statement PDF:\n\n${extractedText}\n\nPlease parse the statement data and output the structured JSON response mapping strictly to our layout schema.`;
+  const textForGemini = truncateStatementText(extractedText);
+  const prompt = `Here is the raw extracted text content from the credit card statement PDF:\n\n${textForGemini}\n\nPlease parse the statement data and output the structured JSON response mapping strictly to our layout schema.`;
 
   const geminiConfig = {
     systemInstruction,

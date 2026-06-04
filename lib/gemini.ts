@@ -1,5 +1,8 @@
-/** Default order: models with available free-tier quota first. */
-export const DEFAULT_GEMINI_MODELS = [
+/** Fast default — matches keys that work with gemini-flash-latest in AI Studio. */
+export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
+
+/** Optional fallbacks when GEMINI_MODEL_FALLBACK=1 (slower; can cause Vercel timeouts). */
+export const FALLBACK_GEMINI_MODELS = [
   "gemini-flash-latest",
   "gemini-2.5-flash",
   "gemini-2.0-flash",
@@ -29,7 +32,13 @@ export function getGeminiModelCandidates(): string[] {
       .map((m) => m.trim())
       .filter(Boolean);
   }
-  return [...DEFAULT_GEMINI_MODELS];
+  const useFallback =
+    process.env.GEMINI_MODEL_FALLBACK === "1" ||
+    process.env.GEMINI_MODEL_FALLBACK === "true";
+  if (useFallback) {
+    return [...FALLBACK_GEMINI_MODELS];
+  }
+  return [DEFAULT_GEMINI_MODEL];
 }
 
 function collectErrorText(err: unknown): string {
@@ -121,7 +130,17 @@ export function parseGeminiError(err: unknown): ParsedGeminiError {
 
 export function shouldTryNextGeminiModel(err: unknown): boolean {
   const parsed = parseGeminiError(err);
-  return parsed.kind === "quota" || parsed.kind === "rate_limit" || parsed.kind === "model_not_found";
+  // Same API key shares quota across models — retrying others causes timeouts.
+  return parsed.kind === "model_not_found";
+}
+
+export function isFunctionTimeoutError(err: unknown): boolean {
+  const text = collectErrorText(err).toLowerCase();
+  return (
+    text.includes("function_invocation_timeout") ||
+    text.includes("invocation timeout") ||
+    text.includes("task timed out")
+  );
 }
 
 export function httpStatusForGeminiError(parsed: ParsedGeminiError): number {
