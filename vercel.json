@@ -1,5 +1,13 @@
 {
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" }
-  ]
+  "functions": {
+    "api/parse-text.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/parse-statement.ts": {
+      "maxDuration": 60,
+      "memory": 3008,
+      "includeFiles": "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"
+    }
+  }
 }
