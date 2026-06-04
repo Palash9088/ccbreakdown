@@ -1,5 +1,9 @@
 {
   "functions": {
+    "api/parse-text.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
     "api/parse-statement.ts": {
       "maxDuration": 60,
       "memory": 3008,

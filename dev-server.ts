@@ -2,11 +2,20 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { parseStatement } from "./lib/parseStatement.js";
+import { parseStatementFromText } from "./lib/parseStatementText.js";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: "25mb" }));
+
+app.post("/api/parse-text", async (req, res) => {
+  const result = await parseStatementFromText(req.body ?? {});
+  if (result.ok === false) {
+    return res.status(result.status).json(result.body);
+  }
+  return res.json(result.data);
+});
 
 app.post("/api/parse-statement", async (req, res) => {
   const result = await parseStatement(req.body ?? {});

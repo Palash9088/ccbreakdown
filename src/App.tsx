@@ -25,11 +25,15 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Transaction, StatementSummary, ParsedStatementResponse } from "./types";
+import { extractPdfInBrowser } from "./lib/extractPdfInBrowser";
+import { parseStatementWithClientKey } from "./lib/parseWithGeminiClient";
+import { fetchParseApi, getApiErrorMessage } from "./lib/parseApiResponse";
+import type { ParseStatementResult } from "../lib/parseStatementTypes";
 
 const LOADING_STEPS = [
-  { title: "Decrypt & Load", desc: "Decrypting PDF document and initializing secure parser" },
-  { title: "Extract Text", desc: "Extracting raw text from pages and reconstructing layout" },
-  { title: "AI Categorization", desc: "Structuring, categorizing, and summarizing transactions using Gemini AI" }
+  { title: "Decrypt & Load", desc: "Opening your PDF securely in the browser" },
+  { title: "Extract Text", desc: "Reading statement pages locally (not sent as PDF to server)" },
+  { title: "AI Categorization", desc: "Structuring transactions with Gemini (browser or server)" },
 ];
 
 export default function App() {
@@ -166,116 +170,156 @@ export default function App() {
     }
   };
 
-  // Send request to Server parser api
-  const parsePDF = async (base64Payload: string, filePassword?: string) => {
-    setLoading(true);
-    setError(null);
+  const applyParseSuccess = (parsed: ParsedStatementResponse) => {
+    setReport(parsed);
+    const processedTransactions = (parsed.transactions || []).map((t, index: number) => ({
+      ...t,
+      id: `txn-${Date.now()}-${index}`,
+    }));
+    setTransactions(processedTransactions);
+    setSummary(parsed.summary);
+    setPasswordRequired(false);
+    triggerToast("Statement successfully parsed and categorized!");
+  };
+
+  const applyParseFailure = (
+    result: Extract<ParseStatementResult, { ok: false }>,
+    filePassword?: string
+  ): boolean => {
+    const handled = getApiErrorMessage(result.status, result.body, filePassword);
+    if (handled?.passwordRequired) {
+      setPasswordRequired(true);
+      setError({ message: handled.message, detail: handled.detail });
+      return true;
+    }
+    if (handled) {
+      setError({ message: handled.message, detail: handled.detail });
+      return true;
+    }
+    setError({
+      message: "Parsing failed",
+      detail: result.body.message,
+    });
+    return true;
+  };
+
+  const runGeminiParse = async (
+    statementText: string,
+    filePassword?: string
+  ): Promise<boolean> => {
+    setLoadingStep(2);
+
+    const trimmedKey = apiKey.trim();
+    if (trimmedKey) {
+      const clientResult = await parseStatementWithClientKey(
+        statementText,
+        trimmedKey
+      );
+      if (clientResult.ok) {
+        applyParseSuccess(clientResult.data as ParsedStatementResponse);
+        return true;
+      }
+      if (clientResult.ok === false && applyParseFailure(clientResult, filePassword)) {
+        return false;
+      }
+      // Fall through to server with the same key if client parse failed unexpectedly
+    }
 
     try {
-      const response = await fetch("/api/parse-statement", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file: base64Payload,
-          password: filePassword || undefined,
-          apiKey: apiKey || undefined,
-        }),
+      const { ok, status, data } = await fetchParseApi("/api/parse-text", {
+        text: statementText,
+        apiKey: trimmedKey || undefined,
       });
 
-      const responseText = await response.text();
-      const contentType = response.headers.get("content-type") ?? "";
-      let data: Record<string, unknown> = {};
-
-      if (contentType.includes("application/json")) {
-        try {
-          data = JSON.parse(responseText) as Record<string, unknown>;
-        } catch {
-          throw new Error(
-            "Server returned invalid JSON. Try again or check Vercel deployment logs."
-          );
-        }
-      } else {
-        throw new Error(
-          responseText.trim() ||
-            `Server error (${response.status}). Check Vercel logs and GEMINI_API_KEY.`
+      if (!ok) {
+        const handled = getApiErrorMessage(
+          status,
+          data as { error?: string; message?: string },
+          filePassword
         );
-      }
-
-      if (!response.ok) {
-        if (response.status === 401 && data.error === "PASSWORD_REQUIRED") {
+        if (handled?.passwordRequired) {
           setPasswordRequired(true);
-          setLoading(false);
-          setError({
-            message: filePassword ? "Incorrect PDF Password" : "Password Required",
-            detail: data.message || (filePassword
-              ? "The password you entered is incorrect. Credit card PDFs are typically locked with passwords like your date of birth or PAN card details. Please try again."
-              : "This credit card statement PDF is password-protected. Enter the password below to decrypt and parse."),
-          });
-          return;
+          setError({ message: handled.message, detail: handled.detail });
+          return false;
         }
-
-        const apiError = typeof data.error === "string" ? data.error : "";
-        const apiMessage =
-          typeof data.message === "string" ? data.message : undefined;
-
-        if (apiError === "QUOTA_EXCEEDED" || apiError === "RATE_LIMIT") {
-          setError({
-            message: "Gemini API limit reached",
-            detail:
-              apiMessage ||
-              "Your API key has no remaining quota for the models tried. Use gemini-flash-latest or enable billing in Google AI Studio.",
-          });
-          return;
+        if (handled) {
+          setError({ message: handled.message, detail: handled.detail });
+          if (
+            (status === 504 || /timeout/i.test(handled.detail)) &&
+            !trimmedKey
+          ) {
+            setError({
+              message: "Processing timed out",
+              detail:
+                handled.detail +
+                " Enter your Gemini API key above to parse in the browser and avoid Vercel timeouts.",
+            });
+          }
+          return false;
         }
-
-        if (apiError === "INVALID_API_KEY") {
-          setError({
-            message: "Invalid Gemini API key",
-            detail:
-              apiMessage ||
-              "Check the key in the app header or set GEMINI_API_KEY on Vercel.",
-          });
-          return;
-        }
-
-        if (
-          response.status === 504 ||
-          apiError === "TIMEOUT" ||
-          (apiMessage && /timeout|timed out/i.test(apiMessage))
-        ) {
-          setError({
-            message: "Processing timed out",
-            detail:
-              apiMessage ||
-              "The server took too long (PDF + AI). Use a smaller statement, set GEMINI_MODEL=gemini-flash-latest, or upgrade Vercel to Pro for 60s functions.",
-          });
-          return;
-        }
-
         throw new Error(
-          apiMessage ||
+          (typeof data.message === "string" && data.message) ||
             "An error occurred while parsing the credit card statement."
         );
       }
 
-      // Success
-      const parsed = data as unknown as ParsedStatementResponse;
-      setReport(parsed);
-      // Give each transaction a unique ID for React table keys and modifications
-      const processedTransactions = (parsed.transactions || []).map((t, index: number) => ({
-        ...t,
-        id: `txn-${Date.now()}-${index}`,
-      }));
-      setTransactions(processedTransactions);
-      setSummary(parsed.summary);
-      setPasswordRequired(false);
-      triggerToast("Statement successfully parsed and categorized!");
+      applyParseSuccess(data as unknown as ParsedStatementResponse);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/timeout|timed out/i.test(msg) && !trimmedKey) {
+        setError({
+          message: "Processing timed out",
+          detail:
+            msg +
+            " Enter your Gemini API key above to parse in the browser (skips Vercel).",
+        });
+        return false;
+      }
+      throw err;
+    }
+  };
 
-    } catch (err: any) {
+  const parsePDF = async (base64Payload: string, filePassword?: string) => {
+    setLoading(true);
+    setError(null);
+    setLoadingStep(0);
+
+    try {
+      setLoadingStep(1);
+      const extractResult = await extractPdfInBrowser(
+        base64Payload,
+        filePassword
+      );
+
+      if (extractResult.ok === false) {
+        if (extractResult.error === "PASSWORD_REQUIRED") {
+          setPasswordRequired(true);
+          setError({
+            message: filePassword ? "Incorrect PDF Password" : "Password Required",
+            detail: extractResult.message,
+          });
+          return;
+        }
+        setError({
+          message:
+            extractResult.error === "PDF_EMPTY"
+              ? "No readable text"
+              : "Could not read PDF",
+          detail: extractResult.message,
+        });
+        return;
+      }
+
+      await runGeminiParse(extractResult.text, filePassword);
+    } catch (err: unknown) {
       console.error(err);
       setError({
         message: "Extraction Failure",
-        detail: err.message || "System encountered issues trying to parse transactions out of this document.",
+        detail:
+          err instanceof Error
+            ? err.message
+            : "System encountered issues trying to parse transactions out of this document.",
       });
     } finally {
       setLoading(false);
@@ -525,7 +569,7 @@ Key Insight: ${summary.keyInsight}`;
                     setApiKey(e.target.value);
                     localStorage.setItem("gemini_api_key", e.target.value);
                   }}
-                  placeholder="Enter custom key (or leave empty for server key)"
+                  placeholder="Gemini key — parses in browser (recommended on Vercel)"
                   className="w-full rounded-lg border border-neutral-200 bg-white pl-3 pr-9 py-2 text-xs shadow-sm focus:border-[#B58A3D] focus:outline-none"
                 />
                 <button
