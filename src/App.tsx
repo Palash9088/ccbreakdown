@@ -245,8 +245,9 @@ export default function App() {
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim()) return;
-    parsePDF(fileBase64, password);
+    const trimmed = password.trim();
+    if (!trimmed) return;
+    parsePDF(fileBase64, trimmed);
   };
 
   // Unique categories list for filters

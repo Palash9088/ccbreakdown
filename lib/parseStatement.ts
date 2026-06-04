@@ -1,11 +1,27 @@
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { GoogleGenAI, Type } from "@google/genai";
 
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (
-  buffer: Buffer,
-  options?: Record<string, unknown>
-) => Promise<{ text: string }>;
+type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+
+let _pdfjs: PdfJsModule | null = null;
+
+async function getPdfJs(): Promise<PdfJsModule> {
+  if (_pdfjs) return _pdfjs;
+
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const require = createRequire(import.meta.url);
+  try {
+    const workerPath = require.resolve(
+      "pdfjs-dist/legacy/build/pdf.worker.mjs"
+    );
+    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+  } catch {
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.mjs`;
+  }
+  _pdfjs = pdfjs;
+  return pdfjs;
+}
 
 export type ParseStatementInput = {
   file?: string;
@@ -61,13 +77,32 @@ async function extractPdfText(
   pdfBuffer: Buffer,
   password?: string
 ): Promise<string> {
-  const options: Record<string, unknown> = {};
-  if (password) {
-    options.password = password;
+  const pdfjs = await getPdfJs();
+  const trimmedPassword = password?.trim();
+
+  const doc = await pdfjs
+    .getDocument({
+      data: new Uint8Array(pdfBuffer),
+      password: trimmedPassword || undefined,
+      useSystemFonts: true,
+      disableFontFace: true,
+    })
+    .promise;
+
+  const parts: string[] = [];
+  for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+    const page = await doc.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const pageLines: string[] = [];
+    for (const item of textContent.items) {
+      if ("str" in item) {
+        pageLines.push(item.str);
+      }
+    }
+    parts.push(`--- Page ${pageNum} ---\n${pageLines.join(" ")}\n`);
   }
 
-  const data = await pdfParse(pdfBuffer, options);
-  return data.text;
+  return parts.join("\n");
 }
 
 function isPdfPasswordError(err: unknown): boolean {
@@ -83,6 +118,8 @@ function isPdfPasswordError(err: unknown): boolean {
   const errName = name.toLowerCase();
   return (
     errName === "passwordexception" ||
+    msg.includes("incorrect password") ||
+    msg.includes("no password given") ||
     msg.includes("password") ||
     msg.includes("encrypted") ||
     msg.includes("decrypt") ||
