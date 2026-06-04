@@ -3,6 +3,39 @@ export type ApiErrorPayload = {
   message?: string;
 };
 
+function parseJsonBody(rawText: string): Record<string, unknown> | null {
+  const trimmed = rawText.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+function vercelPlaintextMessage(rawText: string, status: number): string {
+  const trimmed = rawText.trim();
+  if (/^a server error has occurred/i.test(trimmed)) {
+    return (
+      "Vercel API failed to start (stale or broken deployment). " +
+      "Redeploy the latest main from GitHub, or enter your Gemini API key above to parse in the browser."
+    );
+  }
+  if (/function_invocation_failed|function_invocation_timeout/i.test(trimmed)) {
+    return (
+      "Vercel function crashed or timed out. Add a Gemini API key in the app header to parse in the browser, " +
+      "or check deployment logs for /api/parse-text."
+    );
+  }
+  return trimmed || `Server error (${status}). Check GEMINI_API_KEY on Vercel.`;
+}
+
 export async function fetchParseApi(
   url: string,
   body: Record<string, unknown>
@@ -19,21 +52,14 @@ export async function fetchParseApi(
   });
 
   const rawText = await response.text();
-  const contentType = response.headers.get("content-type") ?? "";
-  let data: Record<string, unknown> = {};
+  const data = parseJsonBody(rawText) ?? {};
 
-  if (contentType.includes("application/json")) {
-    try {
-      data = JSON.parse(rawText) as Record<string, unknown>;
-    } catch {
-      throw new Error(
-        "Server returned invalid JSON. Try again or check deployment logs."
-      );
-    }
-  } else if (!response.ok) {
-    throw new Error(
-      rawText.trim() || `Server error (${response.status}). Check GEMINI_API_KEY.`
-    );
+  if (!response.ok && Object.keys(data).length === 0) {
+    throw new Error(vercelPlaintextMessage(rawText, response.status));
+  }
+
+  if (response.ok && Object.keys(data).length === 0 && rawText.trim()) {
+    throw new Error(vercelPlaintextMessage(rawText, response.status));
   }
 
   return { ok: response.ok, status: response.status, data, rawText };
