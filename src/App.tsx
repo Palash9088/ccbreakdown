@@ -182,7 +182,24 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      const contentType = response.headers.get("content-type") ?? "";
+      let data: Record<string, unknown> = {};
+
+      if (contentType.includes("application/json")) {
+        try {
+          data = JSON.parse(responseText) as Record<string, unknown>;
+        } catch {
+          throw new Error(
+            "Server returned invalid JSON. Try again or check Vercel deployment logs."
+          );
+        }
+      } else {
+        throw new Error(
+          responseText.trim() ||
+            `Server error (${response.status}). Check Vercel logs and GEMINI_API_KEY.`
+        );
+      }
 
       if (!response.ok) {
         if (response.status === 401 && data.error === "PASSWORD_REQUIRED") {
@@ -196,18 +213,22 @@ export default function App() {
           });
           return;
         }
-        throw new Error(data.message || "An error occurred while parsing the credit card statement.");
+        throw new Error(
+          (typeof data.message === "string" && data.message) ||
+            "An error occurred while parsing the credit card statement."
+        );
       }
 
       // Success
-      setReport(data);
+      const parsed = data as unknown as ParsedStatementResponse;
+      setReport(parsed);
       // Give each transaction a unique ID for React table keys and modifications
-      const processedTransactions = (data.transactions || []).map((t: any, index: number) => ({
+      const processedTransactions = (parsed.transactions || []).map((t, index: number) => ({
         ...t,
         id: `txn-${Date.now()}-${index}`,
       }));
       setTransactions(processedTransactions);
-      setSummary(data.summary);
+      setSummary(parsed.summary);
       setPasswordRequired(false);
       triggerToast("Statement successfully parsed and categorized!");
 
