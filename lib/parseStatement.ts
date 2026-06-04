@@ -1,6 +1,8 @@
+import "./ensurePdfNodeGlobals.js";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { GoogleGenAI, Type } from "@google/genai";
+import { ensurePdfNodeGlobals } from "./ensurePdfNodeGlobals.js";
 
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
@@ -9,6 +11,7 @@ let _pdfjs: PdfJsModule | null = null;
 async function getPdfJs(): Promise<PdfJsModule> {
   if (_pdfjs) return _pdfjs;
 
+  await ensurePdfNodeGlobals();
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const require = createRequire(import.meta.url);
   try {

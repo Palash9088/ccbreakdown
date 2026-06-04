@@ -1,3 +1,4 @@
+import "../lib/ensurePdfNodeGlobals.js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { parseStatement } from "../lib/parseStatement.js";
 
