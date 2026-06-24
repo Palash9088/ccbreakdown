@@ -1,7 +1,5 @@
 import "./ensurePdfNodeGlobals.js";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-import { ensurePdfNodeGlobals } from "./ensurePdfNodeGlobals.js";
+import { extractPdfTextFromBuffer } from "./extractPdfText.js";
 import { parseStatementFromText } from "./parseStatementText.js";
 import type {
   ParseStatementInput,
@@ -15,27 +13,6 @@ export type {
   ParseStatementResult,
   ParseStatementSuccess,
 } from "./parseStatementTypes.js";
-
-type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
-
-let _pdfjs: PdfJsModule | null = null;
-
-async function getPdfJs(): Promise<PdfJsModule> {
-  if (_pdfjs) return _pdfjs;
-  await ensurePdfNodeGlobals();
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const require = createRequire(import.meta.url);
-  try {
-    const workerPath = require.resolve(
-      "pdfjs-dist/legacy/build/pdf.worker.mjs"
-    );
-    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-  } catch {
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.mjs`;
-  }
-  _pdfjs = pdfjs;
-  return pdfjs;
-}
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -63,36 +40,6 @@ function isPdfPasswordError(err: unknown): boolean {
   );
 }
 
-async function extractPdfText(
-  pdfBuffer: Buffer,
-  password?: string
-): Promise<string> {
-  const pdfjs = await getPdfJs();
-  const trimmedPassword = password?.trim();
-  const doc = await pdfjs
-    .getDocument({
-      data: new Uint8Array(pdfBuffer),
-      password: trimmedPassword || undefined,
-      useSystemFonts: true,
-      disableFontFace: true,
-    })
-    .promise;
-
-  const parts: string[] = [];
-  for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
-    const page = await doc.getPage(pageNum);
-    const textContent = await page.getTextContent();
-    const pageLines: string[] = [];
-    for (const item of textContent.items) {
-      if ("str" in item) {
-        pageLines.push(item.str);
-      }
-    }
-    parts.push(`--- Page ${pageNum} ---\n${pageLines.join(" ")}\n`);
-  }
-  return parts.join("\n");
-}
-
 /** Legacy server path: PDF + Gemini. Prefer browser extract + /api/parse-text on Vercel. */
 export async function parseStatement(
   input: ParseStatementInput
@@ -118,7 +65,8 @@ export async function parseStatement(
   let extractedText = "";
 
   try {
-    extractedText = await extractPdfText(pdfBuffer, password);
+    const { text } = await extractPdfTextFromBuffer(pdfBuffer, password);
+    extractedText = text;
   } catch (err: unknown) {
     if (isPdfPasswordError(err)) {
       return {

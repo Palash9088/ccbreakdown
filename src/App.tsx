@@ -554,7 +554,10 @@ Key Insight: ${summary.keyInsight}`;
               Financial Statement Parser
             </h1>
             <p className="mt-1 text-sm text-neutral-500 max-w-lg font-sans">
-              Convert raw PDF credit card statement billing documents into fully formatted, searchable, and structured parsed sheet reports.
+              Convert raw PDF credit card statement billing documents into fully formatted, searchable, and structured parsed sheet reports.{" "}
+              <a href="/extract" className="text-[#B58A3D] underline hover:text-[#9a7432]">
+                Text-only extract (no AI)
+              </a>
             </p>
           </div>
 

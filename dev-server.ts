@@ -25,6 +25,19 @@ app.post("/api/parse-statement", async (req, res) => {
   return res.json(result.data);
 });
 
+app.post("/api/extract-text", async (req, res) => {
+  const { extractPdfText } = await import("./lib/extractPdfText.js");
+  const result = await extractPdfText(req.body ?? {});
+  if (result.ok === false) {
+    return res.status(result.status).json(result.body);
+  }
+  return res.json({
+    text: result.text,
+    pageCount: result.pageCount,
+    charCount: result.charCount,
+  });
+});
+
 async function startServer() {
   const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({
