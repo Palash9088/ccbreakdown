@@ -140,8 +140,6 @@ export default function App() {
       if (reader.result) {
         const base64Str = (reader.result as string).split(",")[1];
         setFileBase64(base64Str);
-        // Dispatch to parser
-        parsePDF(base64Str, "");
       }
     };
     reader.onerror = () => {
@@ -328,9 +326,8 @@ export default function App() {
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = password.trim();
-    if (!trimmed) return;
-    parsePDF(fileBase64, trimmed);
+    if (!fileBase64) return;
+    parsePDF(fileBase64, password.trim() || undefined);
   };
 
   // Unique categories list for filters
@@ -668,7 +665,7 @@ Key Insight: ${summary.keyInsight}`;
 
                   <h3 className="mt-4 text-base font-bold text-neutral-900">Upload credit card statement</h3>
                   <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-neutral-500">
-                    Drag and drop your credit card billing `.pdf` file here, or click to browse files.
+                    Drag and drop your credit card billing `.pdf` file here, or click to browse. You will enter the password and parse on the next step.
                   </p>
 
                   <div className="mt-6 flex items-center justify-center gap-3">
@@ -714,9 +711,9 @@ Key Insight: ${summary.keyInsight}`;
                   </motion.div>
                 )}
 
-                {/* Password protected overlay card */}
+                {/* Password + parse CTA (after PDF selected) */}
                 <AnimatePresence>
-                  {passwordRequired && (
+                  {fileBase64 && !report && (
                     <motion.div
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
@@ -729,20 +726,23 @@ Key Insight: ${summary.keyInsight}`;
                             <Lock className="h-4.5 w-4.5" />
                           </div>
                           <div className="flex-1">
-                            <h4 className="text-sm font-bold text-neutral-900">Enter PDF Password</h4>
+                            <h4 className="text-sm font-bold text-neutral-900">
+                              {passwordRequired ? "Incorrect password — try again" : "Enter PDF password"}
+                            </h4>
                             <p className="mt-1 text-xs text-neutral-600 leading-relaxed">
-                              Your file is secure and password-encrypted. Provide the document password (e.g. DDMMYYYY or custom password depending on your bank) to temporarily view and parse decrypted statement transactions. No storage is made.
+                              {passwordRequired
+                                ? "The password did not unlock this PDF. Check your statement password and click Parse statement again."
+                                : "If your PDF is encrypted, enter the password below (leave blank if not). Then click Parse statement to extract and categorize transactions."}
                             </p>
 
-                            <div className="mt-4 flex gap-2 max-w-md">
+                            <div className="mt-4 flex flex-col sm:flex-row gap-2 max-w-lg">
                               <div className="relative flex-1">
                                 <input
                                   type={showPassword ? "text" : "password"}
                                   value={password}
                                   onChange={(e) => setPassword(e.target.value)}
-                                  placeholder="Statement PDF password"
+                                  placeholder="Statement PDF password (if required)"
                                   className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs placeholder-neutral-400 shadow-sm focus:border-[#B58A3D] focus:outline-none"
-                                  autoFocus
                                 />
                                 <button
                                   type="button"
@@ -754,10 +754,10 @@ Key Insight: ${summary.keyInsight}`;
                               </div>
                               <button
                                 type="submit"
-                                disabled={loading || !password.trim()}
-                                className="rounded-lg bg-neutral-900 px-4 py-2 text-xs font-semibold tracking-wide text-white shadow hover:bg-neutral-800 disabled:bg-neutral-400"
+                                disabled={loading}
+                                className="rounded-lg bg-neutral-900 px-5 py-2.5 text-xs font-semibold tracking-wide text-white shadow hover:bg-neutral-800 disabled:bg-neutral-400 shrink-0"
                               >
-                                {loading ? "Decrypting..." : "Decrypt & Parse"}
+                                {loading ? "Processing…" : "Parse statement"}
                               </button>
                             </div>
                           </div>

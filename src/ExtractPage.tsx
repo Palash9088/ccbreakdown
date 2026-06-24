@@ -1,8 +1,31 @@
 import React, { useState } from "react";
-import { FileText, Lock, UploadCloud, Copy, Check, AlertCircle } from "lucide-react";
+import {
+  FileText,
+  Lock,
+  UploadCloud,
+  Copy,
+  Check,
+  AlertCircle,
+  ArrowRight,
+} from "lucide-react";
 import { extractPdfInBrowser } from "./lib/extractPdfInBrowser";
 
+type PendingFile = {
+  base64: string;
+  fileName: string;
+  fileSize: string;
+};
+
+function formatBytes(bytes: number) {
+  if (bytes === 0) return "0 Bytes";
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
 export default function ExtractPage() {
+  const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -13,13 +36,42 @@ export default function ExtractPage() {
   );
   const [copied, setCopied] = useState(false);
 
-  const extractFromBase64 = async (base64: string, fileName: string, pwd?: string) => {
+  const readFile = (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setError("Only PDF files are supported.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (!reader.result) return;
+      const base64 = (reader.result as string).split(",")[1];
+      setPendingFile({
+        base64,
+        fileName: file.name,
+        fileSize: formatBytes(file.size),
+      });
+      setPassword("");
+      setError(null);
+      setText(null);
+      setMeta(null);
+    };
+    reader.onerror = () => setError("Could not read the file.");
+    reader.readAsDataURL(file);
+  };
+
+  const handleExtract = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingFile) return;
+
     setLoading(true);
     setError(null);
     setText(null);
     setMeta(null);
 
-    const result = await extractPdfInBrowser(base64, pwd);
+    const result = await extractPdfInBrowser(
+      pendingFile.base64,
+      password.trim() || undefined
+    );
     setLoading(false);
 
     if (result.ok === false) {
@@ -28,32 +80,19 @@ export default function ExtractPage() {
     }
 
     setText(result.text);
-    setMeta({ fileName, charCount: result.text.length });
-  };
-
-  const handleFile = (file: File) => {
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setError("Only PDF files are supported.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(",")[1];
-      void extractFromBase64(base64, file.name, password.trim() || undefined);
-    };
-    reader.onerror = () => setError("Could not read the file.");
-    reader.readAsDataURL(file);
+    setMeta({ fileName: pendingFile.fileName, charCount: result.text.length });
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (file) readFile(file);
+    e.target.value = "";
   };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+    if (file) readFile(file);
   };
 
   const copyText = async () => {
@@ -72,6 +111,14 @@ export default function ExtractPage() {
     a.download = meta.fileName.replace(/\.pdf$/i, ".txt") || "extracted.txt";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const clearFile = () => {
+    setPendingFile(null);
+    setPassword("");
+    setError(null);
+    setText(null);
+    setMeta(null);
   };
 
   return (
@@ -94,53 +141,97 @@ export default function ExtractPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-8 space-y-6">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <label className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-300">
-            <Lock className="h-4 w-4" />
-            PDF password (if encrypted)
-          </label>
-          <div className="flex gap-2">
-            <input
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="e.g. pala0609"
-              className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              className="rounded-lg border border-slate-700 px-3 text-sm text-slate-400 hover:bg-slate-800"
-            >
-              {showPassword ? "Hide" : "Show"}
-            </button>
+        {!pendingFile ? (
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDrop}
+            className="rounded-xl border-2 border-dashed border-slate-700 bg-slate-900/30 p-10 text-center hover:border-indigo-500/50"
+          >
+            <UploadCloud className="mx-auto mb-3 h-10 w-10 text-slate-500" />
+            <p className="mb-1 text-slate-300 font-medium">Step 1 — Select your PDF</p>
+            <p className="mb-4 text-sm text-slate-500">
+              Drop a file here or browse. You will enter the password next.
+            </p>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500">
+              <FileText className="h-4 w-4" />
+              Select PDF
+              <input
+                type="file"
+                accept=".pdf"
+                className="hidden"
+                onChange={onFileChange}
+                disabled={loading}
+              />
+            </label>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="rounded-lg bg-indigo-950 p-2 text-indigo-400 shrink-0">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-200 truncate">
+                    {pendingFile.fileName}
+                  </p>
+                  <p className="text-xs text-slate-500">{pendingFile.fileSize}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={clearFile}
+                disabled={loading}
+                className="text-xs text-slate-500 hover:text-slate-300 underline"
+              >
+                Choose another file
+              </button>
+            </div>
 
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={onDrop}
-          className="rounded-xl border-2 border-dashed border-slate-700 bg-slate-900/30 p-10 text-center hover:border-indigo-500/50"
-        >
-          <UploadCloud className="mx-auto mb-3 h-10 w-10 text-slate-500" />
-          <p className="mb-4 text-slate-400">
-            Drop a PDF here or click to browse
-          </p>
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500">
-            <FileText className="h-4 w-4" />
-            Select PDF
-            <input
-              type="file"
-              accept=".pdf"
-              className="hidden"
-              onChange={onFileChange}
-              disabled={loading}
-            />
-          </label>
-        </div>
+            <form onSubmit={handleExtract} className="space-y-4">
+              <div>
+                <label className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-300">
+                  <Lock className="h-4 w-4" />
+                  Step 2 — PDF password
+                </label>
+                <p className="mb-2 text-xs text-slate-500">
+                  Leave blank if the PDF is not encrypted.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter statement password"
+                    autoComplete="off"
+                    className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="rounded-lg border border-slate-700 px-3 text-sm text-slate-400 hover:bg-slate-800"
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </div>
 
-        {loading && (
-          <p className="text-center text-sm text-indigo-400">Extracting text…</p>
+              <button
+                type="submit"
+                disabled={loading}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-60"
+              >
+                {loading ? (
+                  "Extracting text…"
+                ) : (
+                  <>
+                    Extract text
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
         )}
 
         {error && (
@@ -187,9 +278,8 @@ export default function ExtractPage() {
         )}
 
         <p className="text-center text-xs text-slate-600">
-          API: <code className="text-slate-500">POST /api/extract-text</code> with{" "}
-          <code className="text-slate-500">{"{ file, password }"}</code> — CLI:{" "}
-          <code className="text-slate-500">npm run extract-pdf -- --pdf path --password pwd</code>
+          API: <code className="text-slate-500">POST /api/extract-text</code> — CLI:{" "}
+          <code className="text-slate-500">npm run extract-pdf</code>
         </p>
       </main>
     </div>
