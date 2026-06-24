@@ -9,6 +9,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { extractPdfInBrowser } from "./lib/extractPdfInBrowser";
+import { statementTextToCsv } from "../lib/statementTextToCsv";
 
 type PendingFile = {
   base64: string;
@@ -35,6 +36,12 @@ export default function ExtractPage() {
     null
   );
   const [copied, setCopied] = useState(false);
+  const [copiedCsv, setCopiedCsv] = useState(false);
+  const [viewMode, setViewMode] = useState<"raw" | "csv">("raw");
+
+  const csvOutput = text ? statementTextToCsv(text) : null;
+  const displayText =
+    viewMode === "csv" && csvOutput ? csvOutput.csv : (text ?? "");
 
   const readFile = (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -102,6 +109,14 @@ export default function ExtractPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const copyCsv = async () => {
+    if (!text) return;
+    const { csv } = statementTextToCsv(text);
+    await navigator.clipboard.writeText(csv);
+    setCopiedCsv(true);
+    setTimeout(() => setCopiedCsv(false), 2000);
+  };
+
   const downloadText = () => {
     if (!text || !meta) return;
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
@@ -109,6 +124,18 @@ export default function ExtractPage() {
     const a = document.createElement("a");
     a.href = url;
     a.download = meta.fileName.replace(/\.pdf$/i, ".txt") || "extracted.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadCsv = () => {
+    if (!text || !meta) return;
+    const { csv } = statementTextToCsv(text);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = meta.fileName.replace(/\.pdf$/i, ".csv") || "extracted.csv";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -244,10 +271,42 @@ export default function ExtractPage() {
         {text && meta && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-slate-400">
-                {meta.fileName} — {meta.charCount.toLocaleString()} characters
-              </p>
-              <div className="flex gap-2">
+              <div>
+                <p className="text-sm text-slate-400">
+                  {meta.fileName} — {meta.charCount.toLocaleString()} characters
+                  {csvOutput && csvOutput.rowCount > 0 && (
+                    <span className="text-slate-500">
+                      {" "}
+                      · {csvOutput.rowCount} transaction rows in CSV
+                    </span>
+                  )}
+                </p>
+                <div className="mt-2 flex gap-1 rounded-lg border border-slate-800 p-0.5 w-fit">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("raw")}
+                    className={`rounded-md px-2.5 py-1 text-xs ${
+                      viewMode === "raw"
+                        ? "bg-slate-700 text-slate-100"
+                        : "text-slate-500 hover:text-slate-300"
+                    }`}
+                  >
+                    Raw text
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("csv")}
+                    className={`rounded-md px-2.5 py-1 text-xs ${
+                      viewMode === "csv"
+                        ? "bg-slate-700 text-slate-100"
+                        : "text-slate-500 hover:text-slate-300"
+                    }`}
+                  >
+                    CSV preview
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={copyText}
@@ -258,7 +317,19 @@ export default function ExtractPage() {
                   ) : (
                     <Copy className="h-4 w-4" />
                   )}
-                  Copy
+                  Copy raw
+                </button>
+                <button
+                  type="button"
+                  onClick={copyCsv}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800"
+                >
+                  {copiedCsv ? (
+                    <Check className="h-4 w-4 text-green-400" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                  Copy CSV
                 </button>
                 <button
                   type="button"
@@ -267,11 +338,18 @@ export default function ExtractPage() {
                 >
                   Download .txt
                 </button>
+                <button
+                  type="button"
+                  onClick={downloadCsv}
+                  className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800"
+                >
+                  Download .csv
+                </button>
               </div>
             </div>
             <textarea
               readOnly
-              value={text}
+              value={displayText}
               className="h-[min(60vh,520px)] w-full resize-y rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-300 outline-none"
             />
           </div>

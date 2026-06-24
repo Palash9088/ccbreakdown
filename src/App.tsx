@@ -28,6 +28,7 @@ import { Transaction, StatementSummary, ParsedStatementResponse } from "./types"
 import { extractPdfInBrowser } from "./lib/extractPdfInBrowser";
 import { parseStatementWithClientKey } from "./lib/parseWithGeminiClient";
 import { fetchParseApi, getApiErrorMessage } from "./lib/parseApiResponse";
+import { statementTextToCsv } from "../lib/statementTextToCsv";
 import type { ParseStatementResult } from "../lib/parseStatementTypes";
 
 const LOADING_STEPS = [
@@ -92,6 +93,7 @@ export default function App() {
 
   // Copy Feedback
   const [copiedRaw, setCopiedRaw] = useState<boolean>(false);
+  const [copiedRawCsv, setCopiedRawCsv] = useState<boolean>(false);
   const [copiedState, setCopiedState] = useState<boolean>(false);
   const [showToast, setShowToast] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>("");
@@ -381,8 +383,21 @@ export default function App() {
     if (!report?.rawReport) return;
     navigator.clipboard.writeText(report.rawReport);
     setCopiedRaw(true);
-    triggerToast("Formatted Markdown report copied to clipboard!");
+    triggerToast("Raw extraction copied to clipboard!");
     setTimeout(() => setCopiedRaw(false), 2000);
+  };
+
+  const copyRawCsv = () => {
+    if (!report?.rawReport) return;
+    const { csv, rowCount } = statementTextToCsv(report.rawReport);
+    navigator.clipboard.writeText(csv);
+    setCopiedRawCsv(true);
+    triggerToast(
+      rowCount > 0
+        ? `CSV copied (${rowCount} transaction rows)!`
+        : "CSV copied (line-by-line fallback)!"
+    );
+    setTimeout(() => setCopiedRawCsv(false), 2000);
   };
 
   // Re-generate markdown on user transactions edits
@@ -1265,13 +1280,24 @@ Key Insight: ${summary.keyInsight}`;
                         <p className="text-[10px] text-neutral-400 font-medium">Immutable copy returned initially from PDF OCR checks.</p>
                       </div>
 
-                      <button
-                        onClick={copyRawMarkdown}
-                        className="text-neutral-400 hover:text-neutral-800 transition"
-                        title="Copy original raw compilation"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={copyRawMarkdown}
+                          className="flex items-center gap-1 rounded-lg border border-neutral-200 px-2 py-1 text-[10px] font-bold text-neutral-600 hover:bg-neutral-50"
+                          title="Copy raw extraction"
+                        >
+                          {copiedRaw ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                          Raw
+                        </button>
+                        <button
+                          onClick={copyRawCsv}
+                          className="flex items-center gap-1 rounded-lg border border-neutral-200 px-2 py-1 text-[10px] font-bold text-neutral-600 hover:bg-neutral-50"
+                          title="Copy raw extraction as CSV"
+                        >
+                          {copiedRawCsv ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                          CSV
+                        </button>
+                      </div>
                     </div>
 
                     <div className="rounded-xl bg-neutral-50/50 p-3.5 border border-neutral-100 max-h-[180px] overflow-y-auto">
